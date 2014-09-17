@@ -1,5 +1,5 @@
 package Limper;
-$Limper::VERSION = '0.001';
+$Limper::VERSION = '0.002';
 =head1 NAME
 
 Limper - extremely lightweight but not very powerful web application framework
@@ -90,7 +90,7 @@ Starts the server. You can pass it the same options as L<IO::Socket::INET> takes
   Listen => 5, ReuseAddr => 1, LocalAddr => 'localhost', LocalPort => 8080, Proto => 'tcp'
 
 This keyword should be called at the very end of the script, once all routes
-are defined.  At this point, Dancer takes over control.
+are defined.  At this point, Limper takes over control.
 
 =head1 COPYRIGHT AND LICENSE
 
