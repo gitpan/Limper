@@ -1,5 +1,10 @@
 Revision history for Limper
 
+0.003     2014-09-21 03:37:31+00:00 UTC
+- skip 002_limper.t if Test::HTTP not installed
+- POD updates
+
 0.002     2014-09-17 06:44:00+00:00 UTC
+- silly error in POD
 
 0.001     2014-09-17 06:36:36+00:00 UTC

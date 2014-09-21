@@ -26,11 +26,7 @@ my %WriteMakefileArgs = (
     "strict" => 0,
     "warnings" => 0
   },
-  "TEST_REQUIRES" => {
-    "Test::HTTP" => 0,
-    "Test::More" => 0
-  },
-  "VERSION" => "0.002",
+  "VERSION" => "0.003",
   "test" => {
     "TESTS" => "t/*.t"
   }
@@ -41,8 +37,6 @@ my %FallbackPrereqs = (
   "Data::Dumper" => 0,
   "Exporter" => 0,
   "IO::Socket" => 0,
-  "Test::HTTP" => 0,
-  "Test::More" => 0,
   "strict" => 0,
   "warnings" => 0
 );

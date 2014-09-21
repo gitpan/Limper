@@ -1,5 +1,5 @@
 package Limper;
-$Limper::VERSION = '0.002';
+$Limper::VERSION = '0.003';
 =head1 NAME
 
 Limper - extremely lightweight but not very powerful web application framework
@@ -31,7 +31,8 @@ C<Limper> is designed primarily to be a simple HTTP/1.1 test server in perl.
 It has a simple syntax like L<Dancer>, but no dependencies at all (expect
 for the tests), unlike the dozens that L<Dancer> pulls in.  It also does
 little to no processing of requests nor formatting of responses.  This is by
-design, othewise, just use L<Dancer>.
+design, othewise, just use L<Dancer>.  There is also no PSGI support or
+other similar fanciness.
 
 =head1 EXPORTS
 
@@ -103,6 +104,13 @@ at your option, any later version of Perl 5 you may have available.
 =head1 SEE ALSO
 
 L<IO::Socket::INET>
+
+L<Dancer>
+
+L<Dancer2>
+
+L<Web::Simple>
+
 
 =cut
 
