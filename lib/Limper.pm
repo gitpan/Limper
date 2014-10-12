@@ -1,5 +1,5 @@
 package Limper;
-$Limper::VERSION = '0.004';
+$Limper::VERSION = '0.005';
 use 5.10.0;
 use strict;
 use warnings;
@@ -16,11 +16,11 @@ my $options = {};
 
 # route subs
 my $route = {};
-sub get($$)    { $route->{GET}{$_[0]} = $_[1] }
-sub post($$)   { $route->{POST}{$_[0]} = $_[1] }
-sub put($$)    { $route->{PUT}{$_[0]} = $_[1] }
-sub del($$)    { $route->{DELETE}{$_[0]} = $_[1] }
-sub trace($$)  { $route->{TRACE}{$_[0]} = $_[1] }
+sub get($$)    { push @{$route->{GET}},    @_ }
+sub post($$)   { push @{$route->{POST}},   @_ }
+sub put($$)    { push @{$route->{PUT}},    @_ }
+sub del($$)    { push @{$route->{DELETE}}, @_ }
+sub trace($$)  { push @{$route->{TRACE}},  @_ }
 
 # for send_response()
 my $reasons = {
@@ -70,10 +70,6 @@ my $reasons = {
 my $method_rx = qr/(?: OPTIONS | GET | HEAD | POST | PUT | DELETE | TRACE | CONNECT )/x;
 my $version_rx = qr{HTTP/\d+\.\d+};
 my $uri_rx = qr/[^ ]+/;
-
-# for handle_request()
-my $regex = quotemeta qr//;
-$regex =~ s/\\\)$/.*\\\)/;
 
 # Formats date like "2014-08-17 00:12:41" in UTC.
 sub date() {
@@ -155,14 +151,10 @@ sub handle_request($) {
     my $head = 1;
     (defined $request->{method} and $request->{method} eq 'HEAD') ? ($request->{method} = 'GET') : ($head = 0);
     if (defined $request->{method} and exists $route->{$request->{method}}) {
-        if (exists $route->{$request->{method}}{$request->{uri}}) {
-            $response->{body} = & { $route->{$request->{method}}{$request->{uri}} };
-            send_response($conn, $request->{version}, $head);
-            return;
-        }
-        for (grep { /^$regex$/ } keys %{ $route->{$request->{method}} }) {
-            if ($request->{uri} =~ /$_/) {
-                $response->{body} = & { $route->{$request->{method}}{$_} };
+        for (my $i = 0; $i < @{$route->{$request->{method}}}; $i += 2) {
+            if ($route->{$request->{method}}[$i] eq $request->{uri} ||
+                        ref $route->{$request->{method}}[$i] eq 'Regexp' and $request->{uri} =~ $route->{$request->{method}}[$i]) {
+                $response->{body} = & { $route->{$request->{method}}[$i+1] };
                 send_response($conn, $request->{version}, $head);
                 return;
             }
@@ -255,7 +247,7 @@ Limper - extremely lightweight but not very powerful web application framework
 
 =head1 VERSION
 
-version 0.004
+version 0.005
 
 =head1 SYNOPSIS
 

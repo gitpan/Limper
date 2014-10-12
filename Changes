@@ -1,5 +1,9 @@
 Revision history for Limper
 
+0.005     2014-10-12 08:19:03+00:00 UTC
+- store routes in arrays, not hashes, so that they can be defined in order
+- add example2.pl
+
 0.004     2014-10-12 06:00:25+00:00 UTC
 - change 'delete' to 'del' since 'delete' is already a perl builtin function
 - added support for multiple workers (default 5) and timeout (default 5 seconds)

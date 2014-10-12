@@ -8,6 +8,7 @@ Makefile.PL
 README
 dist.ini
 example.pl
+example2.pl
 lib/Limper.pm
 t/001_base.t
 t/002_limper.t

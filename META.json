@@ -38,7 +38,7 @@
    "provides" : {
       "Limper" : {
          "file" : "lib/Limper.pm",
-         "version" : "0.004"
+         "version" : "0.005"
       }
    },
    "release_status" : "stable",
@@ -49,6 +49,6 @@
          "web" : "https://gitable.org/ashley/limper.git"
       }
    },
-   "version" : "0.004"
+   "version" : "0.005"
 }
 
