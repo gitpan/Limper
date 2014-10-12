@@ -1,12 +1,24 @@
 use Test::More tests => 8;
 use Limper;
+use POSIX qw(setsid);
 use strict;
 use warnings;
 
-SKIP: {
-    eval { require Test::HTTP };
+sub daemonize {
+    chdir '/'                     or die "can't chdir to /: $!";
+    open STDIN, '<', '/dev/null'  or die "can't read /dev/null: $!";
+    open STDOUT, '>', '/dev/null' or die "can't write to /dev/null: $!";
+    defined(my $pid = fork)       or die "can't fork: $!";
+    return $pid if $pid;
+    setsid != -1                  or die "Can't start a new session: $!";
+    open STDERR, '>&', 'STDOUT'   or die "can't dup stdout: $!";
+    0;
+}
 
-    skip "Test::HTTP not installed", 8 if $@;
+SKIP: {
+    eval { require Net::HTTP::Client };
+
+    skip "Net::HTTP::Client not installed", 8 if $@;
 
     my ($port, $sock);
 
@@ -18,7 +30,7 @@ SKIP: {
     $sock->shutdown(2);
     $sock->close();
 
-    my $pid = fork();
+    my $pid = daemonize();
     if ($pid == 0) {
         my $generic = sub { 'yay' };
 
@@ -33,24 +45,23 @@ SKIP: {
 
         limp(LocalPort => $port);
         die;
+    } else {
+        my $uri = "localhost:$port";
+        sleep 1;
+
+        my $res = Net::HTTP::Client->request(GET => "$uri/fizz");
+        is $res->status_line, '404 Not Found', '404 status';
+        is $res->content, 'This is the void', '404 body';
+
+        $res = Net::HTTP::Client->request(HEAD => "$uri");
+        is $res->status_line, '200 OK', '200 status';
+        is $res->content, '', 'head no body';
+
+        $res = Net::HTTP::Client->request(POST => "$uri/foo/bar", 'foo=bar');
+        is $res->status_line, '202 whatevs', 'post status';
+        is $res->content, 'you posted something: foo=bar', 'post body';
+        is $res->header('Foo'), 'bar, buzz', 'Foo: bar';
+        is $res->header('Content-Type'), 'text/whee', 'Content-Type: text/whee';
+        kill -9, $pid;
     }
-
-    my $test = Test::HTTP->new('Limper tests');
-    my $uri = "http://localhost:$port";
-
-    $test->get("$uri/fizz");
-    $test->status_code_is(404, '404 status');
-    $test->body_is('This is the void', '404 body');
-
-    $test->get("$uri");
-    $test->status_code_is(200, '200 status');
-    $test->body_is('yay', '200 body');
-
-    $test->post("$uri/foo/bar", [], 'foo=bar');
-    $test->status_code_is(202, 'post status');
-    $test->body_is('you posted something: foo=bar', 'post body');
-    $test->header_is('Foo', 'bar, buzz', 'Foo: bar');
-    $test->header_is('Content-Type', 'text/whee', 'Content-Type: text/whee');
-
-    kill 9, $pid;
 };

@@ -1,5 +1,14 @@
 Revision history for Limper
 
+0.004     2014-10-12 06:00:25+00:00 UTC
+- change 'delete' to 'del' since 'delete' is already a perl builtin function
+- added support for multiple workers (default 5) and timeout (default 5 seconds)
+- add "Server: limper/$Limper::VERSION" to response
+- proper HEAD support
+- dist.ini improvements and POD fix (thanks, garu!)
+- remove dump_request(), and hence dep on Data::Dumper, so now this fatpacks nicely
+- replaced Test::HTTP with the thing Limper was originally written to test
+
 0.003     2014-09-21 03:37:31+00:00 UTC
 - skip 002_limper.t if Test::HTTP not installed
 - POD updates

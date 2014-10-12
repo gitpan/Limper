@@ -1,142 +1,25 @@
 package Limper;
-$Limper::VERSION = '0.003';
-=head1 NAME
-
-Limper - extremely lightweight but not very powerful web application framework
-
-=head1 VERSION
-
-Version 0.001
-
-=head1 SYNOPSIS
-
-  use Limper;
-
-  my $generic = sub { 'yay' };
-
-  get '/' => $generic;
-  post '/' => $generic;
-
-  post qr{^/foo/} => sub {
-      status 202, 'whatevs';
-      headers Foo => 'bar', Fizz => 'buzz';
-      'you posted something: ' . request->{body};
-  };
-
-  limp;
-
-=head1 DESCRIPTION
-
-C<Limper> is designed primarily to be a simple HTTP/1.1 test server in perl.
-It has a simple syntax like L<Dancer>, but no dependencies at all (expect
-for the tests), unlike the dozens that L<Dancer> pulls in.  It also does
-little to no processing of requests nor formatting of responses.  This is by
-design, othewise, just use L<Dancer>.  There is also no PSGI support or
-other similar fanciness.
-
-=head1 EXPORTS
-
-The following are all exported by default:
-
-  get head post put delete trace
-  status headers request limp
-
-=head1 FUNCTIONS
-
-=head2 get
-
-=head2 head
-
-=head2 post
-
-=head2 put
-
-=head2 delete
-
-=head2 trace
-
-Defines a route handler for METHOD to the given path:
-
-  get '/' => sub { 'Hello world!' };
-
-=head2 status
-
-Get or set the response status, and optionally reason.
-
-  status 404;
-  status 401, 'Nope';
-  my $status = status;
-  my ($status, $reason) = status;
-
-=head2 headers
-
-Get or set the response headers.
-
-  headers Foo => 'bar', Fizz => 'buzz';
-  my @headers = headers;
-  my $headers = headers;
-
-=head2 request
-
-Returns a C<HASH> of the request. Request keys are: C<method>, C<uri>, and
-C<version>.  It may also contain C<headers> which is an C<ARRAY>,
-C<hheaders> which is a C<HASH> form of the headers, and C<body>.
-
-There is no decoding of the body content nor URL paramters.
-
-=head2 limp
-
-Starts the server. You can pass it the same options as L<IO::Socket::INET> takes. The default options are:
-
-  Listen => 5, ReuseAddr => 1, LocalAddr => 'localhost', LocalPort => 8080, Proto => 'tcp'
-
-This keyword should be called at the very end of the script, once all routes
-are defined.  At this point, Limper takes over control.
-
-=head1 COPYRIGHT AND LICENSE
-
-Copyright (C) 2014 by Ashley Willis E<lt>ashley@gitable.orgE<gt>
-
-This library is free software; you can redistribute it and/or modify
-it under the same terms as Perl itself, either Perl version 5.12.4 or,
-at your option, any later version of Perl 5 you may have available.
-
-=head1 SEE ALSO
-
-L<IO::Socket::INET>
-
-L<Dancer>
-
-L<Dancer2>
-
-L<Web::Simple>
-
-
-=cut
-
+$Limper::VERSION = '0.004';
 use 5.10.0;
 use strict;
 use warnings;
 
 use IO::Socket;
 
-use Data::Dumper;
-$Data::Dumper::Terse = 1;
-
 use Exporter qw/import/;
-our @EXPORT = qw/get head post put delete trace status headers request limp/;
+our @EXPORT = qw/get post put del trace status headers request limp/;
 
 # data stored here
 my $request = {};
 my $response = {};
+my $options = {};
 
 # route subs
 my $route = {};
 sub get($$)    { $route->{GET}{$_[0]} = $_[1] }
-sub head($$)   { $route->{HEAD}{$_[0]} = $_[1] }
 sub post($$)   { $route->{POST}{$_[0]} = $_[1] }
 sub put($$)    { $route->{PUT}{$_[0]} = $_[1] }
-sub delete($$) { $route->{DELETE}{$_[0]} = $_[1] }
+sub del($$)    { $route->{DELETE}{$_[0]} = $_[1] }
 sub trace($$)  { $route->{TRACE}{$_[0]} = $_[1] }
 
 # for send_response()
@@ -192,8 +75,6 @@ my $uri_rx = qr/[^ ]+/;
 my $regex = quotemeta qr//;
 $regex =~ s/\\\)$/.*\\\)/;
 
-
-
 # Formats date like "2014-08-17 00:12:41" in UTC.
 sub date() {
     my ($sec, $min, $hour, $mday, $mon, $year) = localtime;
@@ -209,10 +90,17 @@ sub logg(@) {
 # Will simply close the connection if an invalid Request-Line or header entry.
 sub get_request($) {
     my ($conn) = @_;
-    $request = {};
+    $request = { headers => [], hheaders => {} };
     $response = {};
     my ($request_line, $headers_done);
-    while (defined($_ = $conn->getline)) {
+    while (1) {
+        eval {
+            local $SIG{ALRM} = sub { die "alarm\n" };
+            alarm($options->{timeout} // 5);
+            $_ = $conn->getline;
+            alarm 0;
+        };
+        last unless defined $_;
         if (!defined $request_line) {
             ($request->{method}, $request->{uri}, $request->{version}) = $_ =~ /^($method_rx) ($uri_rx) ($version_rx)\r\n/;
             if (!defined $request->{method}) {
@@ -264,29 +152,31 @@ sub get_request($) {
 sub handle_request($) {
     my ($conn) = @_;
     # request keys: method, uri, version, [headers], [hheaders], [body]
-    if (exists $route->{$request->{method}}) {
+    my $head = 1;
+    (defined $request->{method} and $request->{method} eq 'HEAD') ? ($request->{method} = 'GET') : ($head = 0);
+    if (defined $request->{method} and exists $route->{$request->{method}}) {
         if (exists $route->{$request->{method}}{$request->{uri}}) {
             $response->{body} = & { $route->{$request->{method}}{$request->{uri}} };
-            send_response($conn, $request->{version});
+            send_response($conn, $request->{version}, $head);
             return;
         }
         for (grep { /^$regex$/ } keys %{ $route->{$request->{method}} }) {
             if ($request->{uri} =~ /$_/) {
                 $response->{body} = & { $route->{$request->{method}}{$_} };
-                send_response($conn, $request->{version});
+                send_response($conn, $request->{version}, $head);
                 return;
             }
         }
     }
     $response->{body} = 'This is the void';
     $response->{status} = 404;
-    send_response($conn, $request->{version});
+    send_response($conn, $request->{version}, $head);
 }
 
 # Sends a response to client.
 # Default reponse has Status-Line "200 OK HTTP/1.1", no headers, and no message-body.
 sub send_response {
-    my ($conn, $version) = @_;
+    my ($conn, $version, $head) = @_;
     $version //= 'HTTP/1.1';
     $response->{status} //= 200;
     $response->{reason} //= $reasons->{$response->{status}};
@@ -300,10 +190,12 @@ sub send_response {
     {
         local $\ = "\r\n";
         $conn->print("$version $response->{status} $response->{reason}");
+        return unless $conn->connected;
+        $conn->print('Server: limper/' . ($Limper::VERSION // 'pre-release'));
         $conn->print( join(': ', splice(@{$response->{headers}}, 0, 2)) ) while @{$response->{headers}};
         $conn->print();
     }
-    $conn->print($response->{body});
+    $conn->print($response->{body}) unless $head;
 }
 
 sub status(;$$) {
@@ -327,27 +219,25 @@ sub headers(%) {
     }
 }
 
-# Prints parsed request to STDERR, but without the headers ARRAY.
-sub dump_request() {
-    my $headers = delete $request->{headers};
-    warn Dumper $request;
-    $request->{headers} = $headers;
-}
-
 sub limp(%) {
-    my $sock = IO::Socket::INET->new(Listen => 5, ReuseAddr => 1, LocalAddr => 'localhost', LocalPort => 8080, Proto => 'tcp', @_)
+    $options = shift @_ if ref $_[0] eq 'HASH';
+    my $sock = IO::Socket::INET->new(Listen => SOMAXCONN, ReuseAddr => 1, LocalAddr => 'localhost', LocalPort => 8080, Proto => 'tcp', @_)
             or die "cannot bind to port: $!";
 
     logg 'limper started';
 
-    while (1) {
-        if (my $conn = $sock->accept()) {
-            get_request $conn;
-            next unless defined $request->{method};
-            #dump_request;
-            handle_request $conn;
+    for (1 .. $options->{workers} // 5) {
+        defined(my $pid = fork) or die "fork failed: $!";
+        while (!$pid) {
+            if (my $conn = $sock->accept()) {
+                do {
+                    get_request $conn;
+                    handle_request $conn;
+                } while ($conn->connected);
+            }
         }
     }
+    1 while (wait != -1);
 
     my $shutdown = $sock->shutdown(2);
     my $closed = $sock->close();
@@ -356,3 +246,128 @@ sub limp(%) {
 }
 
 1;
+
+__END__
+
+=head1 NAME
+
+Limper - extremely lightweight but not very powerful web application framework
+
+=head1 VERSION
+
+version 0.004
+
+=head1 SYNOPSIS
+
+  use Limper;
+
+  my $generic = sub { 'yay' };
+
+  get '/' => $generic;
+  post '/' => $generic;
+
+  post qr{^/foo/} => sub {
+      status 202, 'whatevs';
+      headers Foo => 'bar', Fizz => 'buzz';
+      'you posted something: ' . request->{body};
+  };
+
+  limp;
+
+=head1 DESCRIPTION
+
+C<Limper> is designed primarily to be a simple HTTP/1.1 test server in perl.
+It has a simple syntax like L<Dancer>, but no dependencies at all (except
+for the tests, which only run if C<Net::HTTP::Client> is installed), unlike
+the dozens that L<Dancer> pulls in.  It also does little to no processing of
+requests nor formatting of responses.  This is by design, othewise, just use
+L<Dancer>.  There is also no PSGI support or other similar fanciness.
+
+It also fatpacks beautifully (at least on 5.10.1):
+
+  fatpack pack example.pl > example-packed.pl
+
+=head1 EXPORTS
+
+The following are all exported by default:
+
+  get post put del trace
+  status headers request limp
+
+=head1 FUNCTIONS
+
+=head2 get
+
+=head2 post
+
+=head2 put
+
+=head2 del
+
+=head2 trace
+
+Defines a route handler for METHOD to the given path:
+
+  get '/' => sub { 'Hello world!' };
+
+Note that a route to match B<HEAD> requests is automatically created as well for C<get>.
+
+=head2 status
+
+Get or set the response status, and optionally reason.
+
+  status 404;
+  status 401, 'Nope';
+  my $status = status;
+  my ($status, $reason) = status;
+
+=head2 headers
+
+Get or set the response headers.
+
+  headers Foo => 'bar', Fizz => 'buzz';
+  my @headers = headers;
+  my $headers = headers;
+
+=head2 request
+
+Returns a C<HASH> of the request. Request keys are: C<method>, C<uri>, and
+C<version>.  It may also contain C<headers> which is an C<ARRAY>,
+C<hheaders> which is a C<HASH> form of the headers, and C<body>.
+
+There is no decoding of the body content nor URL paramters.
+
+=head2 limp
+
+Starts the server. You can pass it the same options as L<IO::Socket::INET> takes. The default options are:
+
+  Listen => SOMAXCONN, ReuseAddr => 1, LocalAddr => 'localhost', LocalPort => 8080, Proto => 'tcp'
+
+In addition, the first argument can be a C<HASH> to pass other settings:
+
+  limp({timeout => 60, workers => 10}, LocalAddr => '0.0.0.0', LocalPort => 3001);
+
+Default timeout is C<5> (seconds), and default workers is C<10>. A timeout of C<0> means never timeout.
+
+This keyword should be called at the very end of the script, once all routes
+are defined.  At this point, Limper takes over control.
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2014 by Ashley Willis E<lt>ashley@gitable.orgE<gt>
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself, either Perl version 5.12.4 or,
+at your option, any later version of Perl 5 you may have available.
+
+=head1 SEE ALSO
+
+L<IO::Socket::INET>
+
+L<Dancer>
+
+L<Dancer2>
+
+L<Web::Simple>
+
+L<App::FatPacker>

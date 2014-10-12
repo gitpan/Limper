@@ -7,6 +7,8 @@ META.yml
 Makefile.PL
 README
 dist.ini
+example.pl
 lib/Limper.pm
 t/001_base.t
 t/002_limper.t
+t/release-kwalitee.t

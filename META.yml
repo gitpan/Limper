@@ -12,11 +12,16 @@ meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
   version: 1.4
 name: Limper
+provides:
+  Limper:
+    file: lib/Limper.pm
+    version: 0.004
 requires:
-  Data::Dumper: 0
   Exporter: 0
   IO::Socket: 0
   perl: v5.10.0
   strict: 0
   warnings: 0
-version: 0.003
+resources:
+  repository: https://gitable.org/ashley/limper.git
+version: 0.004

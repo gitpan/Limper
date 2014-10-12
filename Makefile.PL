@@ -20,13 +20,12 @@ my %WriteMakefileArgs = (
   "LICENSE" => "perl",
   "NAME" => "Limper",
   "PREREQ_PM" => {
-    "Data::Dumper" => 0,
     "Exporter" => 0,
     "IO::Socket" => 0,
     "strict" => 0,
     "warnings" => 0
   },
-  "VERSION" => "0.003",
+  "VERSION" => "0.004",
   "test" => {
     "TESTS" => "t/*.t"
   }
@@ -34,7 +33,6 @@ my %WriteMakefileArgs = (
 
 
 my %FallbackPrereqs = (
-  "Data::Dumper" => 0,
   "Exporter" => 0,
   "IO::Socket" => 0,
   "strict" => 0,
