@@ -13,3 +13,4 @@ lib/Limper.pm
 t/001_base.t
 t/002_limper.t
 t/release-kwalitee.t
+t/release-pod-coverage.t

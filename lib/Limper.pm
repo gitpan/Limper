@@ -1,5 +1,5 @@
 package Limper;
-$Limper::VERSION = '0.005';
+$Limper::VERSION = '0.006';
 use 5.10.0;
 use strict;
 use warnings;
@@ -7,20 +7,23 @@ use warnings;
 use IO::Socket;
 
 use Exporter qw/import/;
-our @EXPORT = qw/get post put del trace status headers request limp/;
+our @EXPORT = qw/get post put del trace status headers request hook limp/;
+our @EXPORT_OK = qw/note warning rfc1123date/;
 
 # data stored here
 my $request = {};
 my $response = {};
 my $options = {};
+my $hook = {};
+my $conn;
 
 # route subs
 my $route = {};
-sub get($$)    { push @{$route->{GET}},    @_ }
-sub post($$)   { push @{$route->{POST}},   @_ }
-sub put($$)    { push @{$route->{PUT}},    @_ }
-sub del($$)    { push @{$route->{DELETE}}, @_ }
-sub trace($$)  { push @{$route->{TRACE}},  @_ }
+sub get    { push @{$route->{GET}},    @_ }
+sub post   { push @{$route->{POST}},   @_ }
+sub put    { push @{$route->{PUT}},    @_ }
+sub del    { push @{$route->{DELETE}}, @_ }
+sub trace  { push @{$route->{TRACE}},  @_ }
 
 # for send_response()
 my $reasons = {
@@ -71,53 +74,62 @@ my $method_rx = qr/(?: OPTIONS | GET | HEAD | POST | PUT | DELETE | TRACE | CONN
 my $version_rx = qr{HTTP/\d+\.\d+};
 my $uri_rx = qr/[^ ]+/;
 
-# Formats date like "2014-08-17 00:12:41" in UTC.
-sub date() {
+# Returns current time or passed timestamp as an HTTP 1.1 date
+my @months = qw/Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec/;
+my @days = qw/Sun Mon Tue Wed Thu Fri Sat/;
+sub rfc1123date {
+    my ($sec, $min, $hour, $mday, $mon, $year, $wday) = @_ ? gmtime $_[0] : gmtime;
+    sprintf '%s, %02d %s %4d %02d:%02d:%02d GMT', $days[$wday], $mday, $months[$mon], $year + 1900, $hour, $min, $sec;
+}
+
+# Formats date like "2014-08-17 00:12:41" in local time.
+sub date {
     my ($sec, $min, $hour, $mday, $mon, $year) = localtime;
     sprintf '%04d-%02d-%02d %02d:%02d:%02d', $year + 1900, $mon, $mday, $hour, $min, $sec;
 }
 
-# Trivially logs things to STDOUT.
-sub logg(@) {
-    say date, ' ', @_;
+# Trivially log to STDOUT or STDERR
+sub note    { say  date, ' ', @_ }
+sub warning { warn date, ' ', @_ }
+
+sub timeout {
+    eval {
+        local $SIG{ALRM} = sub { die "alarm\n" };
+        alarm($options->{timeout} // 5);
+        $_ = $_[0]->();
+        alarm 0;
+    };
+    $@ ? ($conn->close and undef) : $_;
 }
 
-# Returns a processed request as a hash.
-# Will simply close the connection if an invalid Request-Line or header entry.
-sub get_request($) {
-    my ($conn) = @_;
+sub bad_request {
+    warning "[", $conn->peerhost // "localhost", "] bad request: $_[0]";
+    $response = { status => 400, body => 'Bad Request' };
+    send_response($request->{method} // '' eq 'HEAD', 'close');
+}
+
+# Returns a processed request as a hash, or sends a 400 and closes if invalid.
+sub get_request {
     $request = { headers => [], hheaders => {} };
     $response = {};
-    my ($request_line, $headers_done);
+    my ($request_line, $headers_done, $chunked);
     while (1) {
-        eval {
-            local $SIG{ALRM} = sub { die "alarm\n" };
-            alarm($options->{timeout} // 5);
-            $_ = $conn->getline;
-            alarm 0;
-        };
-        last unless defined $_;
+        defined(my $line = timeout(sub { $conn->getline })) or last;
         if (!defined $request_line) {
-            ($request->{method}, $request->{uri}, $request->{version}) = $_ =~ /^($method_rx) ($uri_rx) ($version_rx)\r\n/;
-            if (!defined $request->{method}) {
-                chomp;
-                logg "[", $conn->peerhost // "localhost", "] invalid request: $_";
-                $conn->close();
-                last;
-            }
+            next if $line eq "\r\n";
+            ($request->{method}, $request->{uri}, $request->{version}) = $line =~ /^($method_rx) ($uri_rx) ($version_rx)\r\n/;
+            return bad_request $line unless defined $request->{method};
             $request_line = 1;
         } elsif (!defined $headers_done) {
-            if (/^\r\n/) {
+            if ($line =~ /^\r\n/) {
                 $headers_done = 1;
             } else {
-                my ($name, $value) = split /: /, $_, 2;
+                my ($name, $value) = split /:[ \t]*/, $line, 2;
                 if ($name =~ /\r\n/) {
-                    chomp;
-                    logg "[", $conn->peerhost // "localhost", "] invalid header: $_";
-                    $conn->close();
-                    last;
+                    return bad_request $line;
                 }
                 $value =~ s/\r\n//;
+                $value = $1 if lc $name eq 'host' and $request->{version} eq 'HTTP/1.1' and $request->{uri} =~ s{^https?://(.+?)/}{/};
                 push @{$request->{headers}}, lc $name, $value;
                 if (exists $request->{hheaders}{lc $name}) {
                     if (ref $request->{hheaders}{lc $name}) {
@@ -131,23 +143,35 @@ sub get_request($) {
             }
         }
         if (defined $headers_done) {
-            logg "[", $conn->peerhost // "localhost", "] $request->{method} $request->{uri} $request->{version} [", {@{$request->{headers}}}->{'user-agent'} // "", "]";
+            return if defined $chunked;
+            note "[", $conn->peerhost // "localhost", "] $request->{method} $request->{uri} $request->{version} [", {@{$request->{headers}}}->{'user-agent'} // "", "]";
+            return bad_request 'Host header missing' if $request->{version} eq 'HTTP/1.1' and (!exists $request->{hheaders}{host} or ref $request->{hheaders}{host});
             for (my $i = 0; $i < @{$request->{headers}}; $i += 2) {
+                if ($request->{headers}[$i] eq 'expect' and lc $request->{headers}[$i+1] eq '100-continue' and $request->{version} eq 'HTTP/1.1') {
+                    $conn->print("HTTP/1.1 100 Continue\r\n\r\n");	# this does not check if route is valid. just here to comply.
+                }
                 if ($request->{headers}[$i] eq 'content-length') {
-                    $conn->read($request->{body}, $request->{headers}[$i+1]);
+                    timeout(sub { $conn->read($request->{body}, $request->{headers}[$i+1]) });
                     last;
+                } elsif ($request->{headers}[$i] eq 'transfer-encoding' and lc $request->{headers}[$i+1] eq 'chunked') {
+                    my $length = my $offset = $chunked = 0;
+                    do {
+                        $_ = timeout(sub { $conn->getline });
+                        $length = hex((/^([A-Fa-f0-9]+)(?:;.*)?\r\n/)[0]);
+                        timeout(sub { $conn->read($request->{body}, $length + 2, $offset) }) if $length;
+                        $offset += $length;
+                    } while $length;
+                    $request->{body} =~ s/\r\n$//;
+                    undef $headers_done; # to get optional footers, and another blank line
                 }
             }
-            last;
+            last if defined $headers_done;
         }
     }
 }
 
-# Finds the appropriate route sub to call, and calls it.
-# If no valid route found, sends a 404 response.
-sub handle_request($) {
-    my ($conn) = @_;
-    # request keys: method, uri, version, [headers], [hheaders], [body]
+# Finds and calls the appropriate route sub, or sends a 404 response.
+sub handle_request {
     my $head = 1;
     (defined $request->{method} and $request->{method} eq 'HEAD') ? ($request->{method} = 'GET') : ($head = 0);
     if (defined $request->{method} and exists $route->{$request->{method}}) {
@@ -155,42 +179,42 @@ sub handle_request($) {
             if ($route->{$request->{method}}[$i] eq $request->{uri} ||
                         ref $route->{$request->{method}}[$i] eq 'Regexp' and $request->{uri} =~ $route->{$request->{method}}[$i]) {
                 $response->{body} = & { $route->{$request->{method}}[$i+1] };
-                send_response($conn, $request->{version}, $head);
+                send_response($head);
                 return;
             }
         }
     }
     $response->{body} = 'This is the void';
     $response->{status} = 404;
-    send_response($conn, $request->{version}, $head);
+    send_response($head);
 }
 
-# Sends a response to client.
-# Default reponse has Status-Line "200 OK HTTP/1.1", no headers, and no message-body.
+# Sends a response to client. Default status is 200.
 sub send_response {
-    my ($conn, $version, $head) = @_;
-    $version //= 'HTTP/1.1';
+    my ($head, $close) = @_;
+    $close //= $request->{hheaders}{connection} // '';
     $response->{status} //= 200;
-    $response->{reason} //= $reasons->{$response->{status}};
-    $response->{body} //= '';
-    if ($response->{body}) {
-        $response->{headers} //= [];
+    push @{$response->{headers}}, 'Date', rfc1123date();
+    if ($response->{body} // '') {
         my @headers = keys %{{@{$response->{headers}}}};
         push @{$response->{headers}}, ('Content-Length', length $response->{body}) unless grep { $_ eq 'Content-Length' } @headers;
         push @{$response->{headers}}, ('Content-Type', 'text/plain') unless grep { $_ eq 'Content-Type' } @headers;
     }
+    push @{$response->{headers}}, 'Connection', 'close' if $close eq 'close';
+    $_->($request, $response) for @{$hook->{after}};
     {
         local $\ = "\r\n";
-        $conn->print("$version $response->{status} $response->{reason}");
+        $conn->print(join ' ', $request->{version} // 'HTTP/1.1', $response->{status}, $response->{reason} // $reasons->{$response->{status}});
         return unless $conn->connected;
         $conn->print('Server: limper/' . ($Limper::VERSION // 'pre-release'));
         $conn->print( join(': ', splice(@{$response->{headers}}, 0, 2)) ) while @{$response->{headers}};
         $conn->print();
     }
-    $conn->print($response->{body}) unless $head;
+    $conn->print($response->{body} // '') unless $head // 0;
+    $conn->close if $close eq 'close';
 }
 
-sub status(;$$) {
+sub status {
     if (defined wantarray) {
         wantarray ? ($response->{status}, $response->{reason}) : $response->{status};
     } else {
@@ -199,11 +223,7 @@ sub status(;$$) {
     }
 }
 
-sub request() {
-    $request;
-}
-
-sub headers(%) {
+sub headers {
     if (defined wantarray) {
         wantarray ? @{$response->{headers}} : $response->{headers};
     } else {
@@ -211,20 +231,31 @@ sub headers(%) {
     }
 }
 
-sub limp(%) {
+sub request { $request }
+
+sub hook { push @{$hook->{$_[0]}}, $_[1] }
+
+sub limp {
     $options = shift @_ if ref $_[0] eq 'HASH';
     my $sock = IO::Socket::INET->new(Listen => SOMAXCONN, ReuseAddr => 1, LocalAddr => 'localhost', LocalPort => 8080, Proto => 'tcp', @_)
             or die "cannot bind to port: $!";
 
-    logg 'limper started';
+    note 'limper started';
 
     for (1 .. $options->{workers} // 5) {
         defined(my $pid = fork) or die "fork failed: $!";
         while (!$pid) {
-            if (my $conn = $sock->accept()) {
+            if ($conn = $sock->accept()) {
                 do {
-                    get_request $conn;
-                    handle_request $conn;
+                    eval {
+                        get_request;
+                        handle_request;
+                    };
+                    if ($@) {
+                        $response = { status => 500, body => $options->{debug} // 0 ? $@ : 'Internal Server Error' };
+                        send_response 0, 'close';
+                        warning $@;
+                    }
                 } while ($conn->connected);
             }
         }
@@ -233,13 +264,15 @@ sub limp(%) {
 
     my $shutdown = $sock->shutdown(2);
     my $closed = $sock->close();
-    logg 'shutdown ', $shutdown ? 'successful' : 'unsuccessful';
-    logg 'closed ', $closed ? 'successful' : 'unsuccessful';
+    note 'shutdown ', $shutdown ? 'successful' : 'unsuccessful';
+    note 'closed ', $closed ? 'successful' : 'unsuccessful';
 }
 
 1;
 
 __END__
+
+=for Pod::Coverage bad_request date get_request handle_request send_response timeout
 
 =head1 NAME
 
@@ -247,7 +280,7 @@ Limper - extremely lightweight but not very powerful web application framework
 
 =head1 VERSION
 
-version 0.005
+version 0.006
 
 =head1 SYNOPSIS
 
@@ -284,7 +317,11 @@ It also fatpacks beautifully (at least on 5.10.1):
 The following are all exported by default:
 
   get post put del trace
-  status headers request limp
+  status headers request hook limp
+
+Also exportable:
+
+  note warning rfc1123date
 
 =head1 FUNCTIONS
 
@@ -321,6 +358,8 @@ Get or set the response headers.
   my @headers = headers;
   my $headers = headers;
 
+Note: All previously defined headers will be discarded if you set new headers.
+
 =head2 request
 
 Returns a C<HASH> of the request. Request keys are: C<method>, C<uri>, and
@@ -329,24 +368,50 @@ C<hheaders> which is a C<HASH> form of the headers, and C<body>.
 
 There is no decoding of the body content nor URL paramters.
 
+=head2 hook
+
+Adds a hook at some position.
+
+Currently the only defined hook is C<after>, which runs after all other processing, just before response is sent.
+
+  hook after => sub {
+    my ($request, $response) = @_;
+    # modify response as needed
+  };
+
 =head2 limp
 
-Starts the server. You can pass it the same options as L<IO::Socket::INET> takes. The default options are:
+Starts the server. You can pass it the same options as L<IO::Socket::INET>
+takes.  The default options are:
 
   Listen => SOMAXCONN, ReuseAddr => 1, LocalAddr => 'localhost', LocalPort => 8080, Proto => 'tcp'
 
 In addition, the first argument can be a C<HASH> to pass other settings:
 
-  limp({timeout => 60, workers => 10}, LocalAddr => '0.0.0.0', LocalPort => 3001);
+  limp({debug => 1, timeout => 60, workers => 10}, LocalAddr => '0.0.0.0', LocalPort => 3001);
 
-Default timeout is C<5> (seconds), and default workers is C<10>. A timeout of C<0> means never timeout.
+Default debug is C<0>, default timeout is C<5> (seconds), and default
+workers is C<10>.  A timeout of C<0> means never timeout.
 
 This keyword should be called at the very end of the script, once all routes
 are defined.  At this point, Limper takes over control.
 
+=head1 ADDITIONAL FUNCTIONS
+
+=head2 note
+
+=head2 warning
+
+Log given list to B<STDOUT> or B<STDERR>. Prepends the current local time in
+format "YYYY-MM-DD HH:MM:SS".
+
+=head2 rfc1123date
+
+Returns the current time or passed timestamp as an HTTP 1.1 date (RFC 1123).
+
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2014 by Ashley Willis E<lt>ashley@gitable.orgE<gt>
+Copyright (C) 2014 by Ashley Willis E<lt>ashley+perl@gitable.orgE<gt>
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.12.4 or,

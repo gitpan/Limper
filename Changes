@@ -1,5 +1,31 @@
 Revision history for Limper
 
+0.006     2014-10-16 02:03:34+00:00 UTC
+Work towards HTTP/1.1 compliance and be usable in production.
+
+- HTTP 1.1 improvements:
+  - require Host: header and accept absolute URLs from HTTP/1.1 clients
+  - support chunked encoding and timeout on reading content.
+  - return an RFC 1123 Date: header with every response
+  - minimal 100 Continue support
+  - better close support
+
+- seems like a good idea:
+  - catch exceptions instead of having worker die
+
+- new/changed features:
+  - after hook support – runs after all other processing, just before response is sent.
+  - rename 'logg' to 'note', add similar 'warning'
+
+0 general code improvements:
+  - remove prototypes
+  - use strict in example.pl
+  - remove passing http version to send_response
+  - add PodCoverageTests to dist.ini
+  - make $conn package global
+  - tweak warning and bad_request
+  - tweak timeout
+
 0.005     2014-10-12 08:19:03+00:00 UTC
 - store routes in arrays, not hashes, so that they can be defined in order
 - add example2.pl
