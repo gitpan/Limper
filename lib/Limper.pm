@@ -1,5 +1,5 @@
 package Limper;
-$Limper::VERSION = '0.006';
+$Limper::VERSION = '0.007';
 use 5.10.0;
 use strict;
 use warnings;
@@ -111,7 +111,7 @@ sub bad_request {
 # Returns a processed request as a hash, or sends a 400 and closes if invalid.
 sub get_request {
     $request = { headers => [], hheaders => {} };
-    $response = {};
+    $response = { headers => [] };
     my ($request_line, $headers_done, $chunked);
     while (1) {
         defined(my $line = timeout(sub { $conn->getline })) or last;
@@ -280,7 +280,7 @@ Limper - extremely lightweight but not very powerful web application framework
 
 =head1 VERSION
 
-version 0.006
+version 0.007
 
 =head1 SYNOPSIS
 

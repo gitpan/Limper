@@ -1,5 +1,8 @@
 Revision history for Limper
 
+0.007     2014-10-17 04:41:56+00:00 UTC
+- fix bug when calling headers in list mode and it's undefined
+
 0.006     2014-10-16 02:03:34+00:00 UTC
 Work towards HTTP/1.1 compliance and be usable in production.
 
