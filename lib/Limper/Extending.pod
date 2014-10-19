@@ -1,0 +1,78 @@
+=pod
+ 
+=encoding UTF-8
+
+=head1 NAME
+
+Limper::Extending - how to make Limper more useful
+
+=head1 VERSION
+
+version 0.008
+
+=head1 DESCRIPTION
+
+C<Limper> is B<really> simple, and meant to have only the features needed. 
+This hopes to show how to extend it and make it more useful in a manageable
+way.
+
+=head1 EXAMPLE
+
+Basic outline of a package that extends C<Limper>:
+
+  package My::Limper::Extension;
+
+  use base 'Limper';
+  use 5.10.0;
+  use strict;
+  use warnings;
+
+  package Limper;
+
+  use Fizz;
+  use Buzz;
+
+  push @Limper::EXPORT, qw/foo/;
+  push @Limper::EXPORT_OK, qw/bar/;
+
+  hook after => sub { ... }
+
+  sub bar { ... }
+
+  sub foo { ... }
+
+  1;
+
+And then in your app:
+
+  use 5.10.0;
+  use strict;
+  use warnings;
+
+  use My::Limper::Extension;
+  use Limper;   # this must come after all extensions
+
+  get '/foo' => sub { foo };
+
+  limp;
+
+If you also want to be able to send static content, then C<use
+Limper::SendFile> as well in your app.
+
+Or you can instead C<use base 'Limper::SendFile'> instead in
+C<My::Limper::Extension>, and don't need to explicitly use it in your app. 
+This gives you the features it adds as well.
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright (C) 2014 by Ashley Willis E<lt>ashley+perl@gitable.orgE<gt>
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself, either Perl version 5.12.4 or,
+at your option, any later version of Perl 5 you may have available.
+
+=head1 SEE ALSO
+
+C<Limper::SendFile> for an actual example.
+
+=cut

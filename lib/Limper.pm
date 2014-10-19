@@ -1,5 +1,5 @@
 package Limper;
-$Limper::VERSION = '0.007';
+$Limper::VERSION = '0.008';
 use 5.10.0;
 use strict;
 use warnings;
@@ -191,8 +191,10 @@ sub handle_request {
 
 # Sends a response to client. Default status is 200.
 sub send_response {
-    my ($head, $close) = @_;
-    $close //= $request->{hheaders}{connection} // '';
+    my ($head, $connection) = @_;
+    $connection //= (($request->{version} // '') eq 'HTTP/1.1')
+            ? lc($request->{hheaders}{connection} // '')
+            : lc($request->{hheaders}{connection} // 'close') eq 'keep-alive' ? 'keep-alive' : 'close';
     $response->{status} //= 200;
     push @{$response->{headers}}, 'Date', rfc1123date();
     if ($response->{body} // '') {
@@ -200,7 +202,7 @@ sub send_response {
         push @{$response->{headers}}, ('Content-Length', length $response->{body}) unless grep { $_ eq 'Content-Length' } @headers;
         push @{$response->{headers}}, ('Content-Type', 'text/plain') unless grep { $_ eq 'Content-Type' } @headers;
     }
-    push @{$response->{headers}}, 'Connection', 'close' if $close eq 'close';
+    push @{$response->{headers}}, 'Connection', $connection if $connection eq 'close' or ($connection eq 'keep-alive' and $request->{version} ne 'HTTP/1.1');
     $_->($request, $response) for @{$hook->{after}};
     {
         local $\ = "\r\n";
@@ -211,7 +213,7 @@ sub send_response {
         $conn->print();
     }
     $conn->print($response->{body} // '') unless $head // 0;
-    $conn->close if $close eq 'close';
+    $conn->close if $connection eq 'close';
 }
 
 sub status {
@@ -249,7 +251,7 @@ sub limp {
                 do {
                     eval {
                         get_request;
-                        handle_request;
+                        handle_request if $conn->connected;
                     };
                     if ($@) {
                         $response = { status => 500, body => $options->{debug} // 0 ? $@ : 'Internal Server Error' };
@@ -280,7 +282,7 @@ Limper - extremely lightweight but not very powerful web application framework
 
 =head1 VERSION
 
-version 0.007
+version 0.008
 
 =head1 SYNOPSIS
 

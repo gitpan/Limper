@@ -10,6 +10,7 @@ dist.ini
 example.pl
 example2.pl
 lib/Limper.pm
+lib/Limper/Extending.pod
 t/001_base.t
 t/002_limper.t
 t/release-kwalitee.t

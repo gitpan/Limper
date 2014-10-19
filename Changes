@@ -1,5 +1,9 @@
 Revision history for Limper
 
+0.008     2014-10-19 06:06:40+00:00 UTC
+- properly handle HTTP/1.0 close/keep-alive
+- add POD Limper::Extending
+
 0.007     2014-10-17 04:41:56+00:00 UTC
 - fix bug when calling headers in list mode and it's undefined
 
