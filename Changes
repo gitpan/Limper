@@ -1,5 +1,8 @@
 Revision history for Limper
 
+0.011     2014-10-20 05:46:31+00:00 UTC
+- much better DESCRIPTION, and other POD fixes and tweaks
+
 0.010     2014-10-20 05:06:01+00:00 UTC
 - delete $response->{body} if $head, so that response_handler works correctly for HEAD requests
 

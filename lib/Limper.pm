@@ -1,5 +1,5 @@
 package Limper;
-$Limper::VERSION = '0.010';
+$Limper::VERSION = '0.011';
 use 5.10.0;
 use strict;
 use warnings;
@@ -288,7 +288,7 @@ Limper - extremely lightweight but not very powerful web application framework
 
 =head1 VERSION
 
-version 0.010
+version 0.011
 
 =head1 SYNOPSIS
 
@@ -309,16 +309,24 @@ version 0.010
 
 =head1 DESCRIPTION
 
-C<Limper> is designed primarily to be a simple HTTP/1.1 test server in perl.
-It has a simple syntax like L<Dancer>, but no dependencies at all (except
-for the tests, which only run if C<Net::HTTP::Client> is installed), unlike
-the dozens that L<Dancer> pulls in.  It also does little to no processing of
-requests nor formatting of responses.  This is by design, othewise, just use
-L<Dancer>.  There is also no PSGI support or other similar fanciness.
+B<Limper> was originally designed to primarily be a simple HTTP/1.1 test
+server in perl, but I realized it can be much more than that while still
+remaining simple.
 
-It also fatpacks beautifully (at least on 5.10.1):
+B<Limper> has a simple syntax like L<Dancer> yet no dependencies at all,
+unlike the dozens that L<Dancer> pulls in.
+
+B<Limper> is modular - support for serving files, easily returning JSON, or
+using PSGI can be included if and only if needed (and these features already
+exist on CPAN).
+
+B<Limper> is fast - about 2-3 times faster than Dancer.
+
+B<Limper> also fatpacks beautifully (at least on 5.10.1):
 
   fatpack pack example.pl > example-packed.pl
+
+Do not taunt B<Limper>.
 
 =head1 EXPORTS
 
@@ -347,7 +355,7 @@ Defines a route handler for METHOD to the given path:
 
   get '/' => sub { 'Hello world!' };
 
-Note that a route to match B<HEAD> requests is automatically created as well for C<get>.
+Note that a route to match B<HEAD> requests is automatically created as well for B<get>.
 
 =head2 status
 
@@ -370,20 +378,20 @@ Note: All previously defined headers will be discarded if you set new headers.
 
 =head2 request
 
-Returns a C<HASH> of the request. Request keys are: C<method>, C<uri>, and
-C<version>.  It may also contain C<headers> which is an C<ARRAY>,
-C<hheaders> which is a C<HASH> form of the headers, and C<body>.
+Returns a B<HASH> of the request. Request keys are: B<method>, B<uri>, and
+B<version>.  It may also contain B<headers> which is an B<ARRAY>,
+B<hheaders> which is a B<HASH> form of the headers, and B<body>.
 
 There is no decoding of the body content nor URL paramters.
 
 =head2 response
 
-Returns response C<HASH>. Keys are C<status>, C<reason>, C<headers> (an
-C<ARRAY> of key/value pairs), and C<body>.
+Returns response B<HASH>. Keys are B<status>, B<reason>, B<headers> (an
+B<ARRAY> of key/value pairs), and B<body>.
 
 =head2 options
 
-Returns options C<HASH>. See B<limp> below for known options.
+Returns options B<HASH>. See B<limp> below for known options.
 
 =head2 hook
 
@@ -402,7 +410,7 @@ Runs after all other processing, just before response is sent.
 
 =head3 request_handler
 
-Runs when C<limp> is called, after only setting passed options, and returns
+Runs when B<limp> is called, after only setting passed options, and returns
 the result instead of starting up the built-in web server.  A simplified
 example for PSGI (including the B<response_handler> below) is:
 
@@ -427,12 +435,12 @@ takes.  The default options are:
 
   Listen => SOMAXCONN, ReuseAddr => 1, LocalAddr => 'localhost', LocalPort => 8080, Proto => 'tcp'
 
-In addition, the first argument can be a C<HASH> to pass other settings:
+In addition, the first argument can be a B<HASH> to pass other settings:
 
   limp({debug => 1, timeout => 60, workers => 10}, LocalAddr => '0.0.0.0', LocalPort => 3001);
 
-Default debug is C<0>, default timeout is C<5> (seconds), and default
-workers is C<10>.  A timeout of C<0> means never timeout.
+Default debug is B<0>, default timeout is B<5> (seconds), and default
+workers is B<10>.  A timeout of B<0> means never timeout.
 
 This keyword should be called at the very end of the script, once all routes
 are defined.  At this point, Limper takes over control.
@@ -462,7 +470,7 @@ at your option, any later version of Perl 5 you may have available.
 
 L<IO::Socket::INET>
 
-L<Limper::PSGI>
+L<Limper::Engine::PSGI>
 
 L<Limper::SendFile>
 

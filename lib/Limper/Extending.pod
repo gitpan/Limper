@@ -1,5 +1,5 @@
 =pod
- 
+
 =encoding UTF-8
 
 =head1 NAME
@@ -8,17 +8,17 @@ Limper::Extending - how to make Limper more useful
 
 =head1 VERSION
 
-version 0.010
+version 0.011
 
 =head1 DESCRIPTION
 
-C<Limper> is B<really> simple, and meant to have only the features needed. 
+B<Limper> is B<really> simple, and meant to have only the features needed.
 This hopes to show how to extend it and make it more useful in a manageable
 way.
 
 =head1 EXAMPLE
 
-Basic outline of a package that extends C<Limper>:
+Basic outline of a package that extends B<Limper>:
 
   package My::Limper::Extension;
 
@@ -59,9 +59,9 @@ And then in your app:
 If you also want to be able to send static content, then C<use
 Limper::SendFile> as well in your app.
 
-Or you can instead C<use base 'Limper::SendFile'> instead in
-C<My::Limper::Extension>, and don't need to explicitly use it in your app. 
-This gives you the features it adds as well.
+Or you can instead do C<use base 'Limper::SendFile'> in
+B<My::Limper::Extension>, and you don't need to explicitly use it in your
+app.  This gives you the features it adds as well.
 
 =head1 COPYRIGHT AND LICENSE
 
@@ -75,7 +75,7 @@ at your option, any later version of Perl 5 you may have available.
 
 Actual examples:
 
-L<Limper::PSGI>
+L<Limper::Engine::PSGI>
 
 L<Limper::SendFile>
 
