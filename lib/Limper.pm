@@ -1,5 +1,5 @@
 package Limper;
-$Limper::VERSION = '0.009';
+$Limper::VERSION = '0.010';
 use 5.10.0;
 use strict;
 use warnings;
@@ -201,6 +201,7 @@ sub send_response {
         push @{$response->{headers}}, ('Content-Length', length $response->{body}) unless grep { $_ eq 'Content-Length' } @headers;
         push @{$response->{headers}}, ('Content-Type', 'text/plain') unless grep { $_ eq 'Content-Type' } @headers;
     }
+    delete $response->{body} if $head // 0;
     push @{$response->{headers}}, 'Connection', $connection if $connection eq 'close' or ($connection eq 'keep-alive' and $request->{version} ne 'HTTP/1.1');
     unshift @{$response->{headers}}, 'Server', 'limper/' . ($Limper::VERSION // 'pre-release');
     $_->($request, $response) for @{$hook->{after}};
@@ -212,7 +213,7 @@ sub send_response {
         $conn->print( join(': ', splice(@{$response->{headers}}, 0, 2)) ) while @{$response->{headers}};
         $conn->print();
     }
-    $conn->print($response->{body} // '') unless $head // 0;
+    $conn->print($response->{body} // '') if defined $response->{body};
     $conn->close if $connection eq 'close';
 }
 
@@ -287,7 +288,7 @@ Limper - extremely lightweight but not very powerful web application framework
 
 =head1 VERSION
 
-version 0.009
+version 0.010
 
 =head1 SYNOPSIS
 
