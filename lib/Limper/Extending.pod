@@ -8,7 +8,7 @@ Limper::Extending - how to make Limper more useful
 
 =head1 VERSION
 
-version 0.008
+version 0.009
 
 =head1 DESCRIPTION
 
@@ -73,6 +73,12 @@ at your option, any later version of Perl 5 you may have available.
 
 =head1 SEE ALSO
 
-C<Limper::SendFile> for an actual example.
+Actual examples:
+
+L<Limper::PSGI>
+
+L<Limper::SendFile>
+
+L<Limper::SendJSON>
 
 =cut

@@ -1,5 +1,12 @@
 Revision history for Limper
 
+0.009     2014-10-20 02:48:07+00:00 UTC
+- changes to support Limper::PSGI (and possibly Limper::SCGI, etc):
+  - set $request->{remote_host} to $conn->peerhost // "localhost"
+  - new exported subs response and options
+  - new hooks response_handler and request_handler
+  - tweaks to support proper use of new hooks
+
 0.008     2014-10-19 06:06:40+00:00 UTC
 - properly handle HTTP/1.0 close/keep-alive
 - add POD Limper::Extending
