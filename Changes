@@ -1,5 +1,20 @@
 Revision history for Limper
 
+0.012     2014-10-27 03:11:07+00:00 UTC
+- skip tests for MSWin32
+- add CONTRIBUTING and EVEN MORE sections to Limper
+- add LAYOUT and NAMESPACES sections to Limper::Extending
+- add placeholders Limper::Plugin and Limper::Engine for those namespaces
+- add Limper::Passphrase as example of what not to make a plugin
+- add Limper::Differences which compares against Dancer
+- changed 'options' to 'config', since 'options' is an HTTP method
+- handle HTTP methods OPTIONS and PATCH
+- add 'any' to create handlers for all methods
+- allow chaining the method functions (they all return @_ now)
+- changed 'note' to 'info'
+- better headers function, and change $response->{headers} to a HASH
+- request->{header} is now what request->{hheader} was – no more ARRAY form
+
 0.011     2014-10-20 05:46:31+00:00 UTC
 - much better DESCRIPTION, and other POD fixes and tweaks
 

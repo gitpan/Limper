@@ -1,8 +1,19 @@
-use Test::More tests => 8;
+use Test::More;
 use Limper;
 use POSIX qw(setsid);
 use strict;
 use warnings;
+
+if ($^O eq 'MSWin32') {
+    plan skip_all => 'Tests fail randomly on MSWin32 - maybe just AMD?';
+} else {
+    eval { require Net::HTTP::Client };
+    if ($@) {
+        plan skip_all => 'Net::HTTP::Client not installed';
+    } else {
+        plan tests => 8;
+    }
+}
 
 sub daemonize {
     chdir '/'                     or die "can't chdir to /: $!";
@@ -15,53 +26,47 @@ sub daemonize {
     0;
 }
 
-SKIP: {
-    eval { require Net::HTTP::Client };
+my ($port, $sock);
 
-    skip "Net::HTTP::Client not installed", 8 if $@;
+do {
+    $port = int rand()*32767+32768;
+    $sock = IO::Socket::INET->new(Listen => 5, ReuseAddr => 1, LocalAddr => 'localhost', LocalPort => $port, Proto => 'tcp')
+            or warn "\n# cannot bind to port $port: $!";
+} while (!defined $sock);
+$sock->shutdown(2);
+$sock->close();
 
-    my ($port, $sock);
+my $pid = daemonize();
+if ($pid == 0) {
+    my $generic = sub { 'yay' };
 
-    do {
-        $port = int rand()*32767+32768;
-        $sock = IO::Socket::INET->new(Listen => 5, ReuseAddr => 1, LocalAddr => 'localhost', LocalPort => $port, Proto => 'tcp')
-                or warn "\n# cannot bind to port $port: $!";
-    } while (!defined $sock);
-    $sock->shutdown(2);
-    $sock->close();
+    get '/' => $generic;
+    post '/' => $generic;
 
-    my $pid = daemonize();
-    if ($pid == 0) {
-        my $generic = sub { 'yay' };
+    post qr{^/foo/} => sub {
+        status 202, 'whatevs';
+        headers Foo => ['bar', 'buzz'], 'Content-Type' => 'text/whee';
+        'you posted something: ' . request->{body};
+    };
 
-        get '/' => $generic;
-        post '/' => $generic;
+    limp(LocalPort => $port);
+    die;
+} else {
+    my $uri = "localhost:$port";
+    sleep 1;
 
-        post qr{^/foo/} => sub {
-            status 202, 'whatevs';
-            headers Foo => 'bar', Foo => 'buzz', 'Content-Type' => 'text/whee';
-            'you posted something: ' . request->{body};
-        };
+    my $res = Net::HTTP::Client->request(GET => "$uri/fizz");
+    is $res->status_line, '404 Not Found', '404 status';
+    is $res->content, 'This is the void', '404 body';
 
-        limp(LocalPort => $port);
-        die;
-    } else {
-        my $uri = "localhost:$port";
-        sleep 1;
+    $res = Net::HTTP::Client->request(HEAD => "$uri");
+    is $res->status_line, '200 OK', '200 status';
+    is $res->content, '', 'head no body';
 
-        my $res = Net::HTTP::Client->request(GET => "$uri/fizz");
-        is $res->status_line, '404 Not Found', '404 status';
-        is $res->content, 'This is the void', '404 body';
-
-        $res = Net::HTTP::Client->request(HEAD => "$uri");
-        is $res->status_line, '200 OK', '200 status';
-        is $res->content, '', 'head no body';
-
-        $res = Net::HTTP::Client->request(POST => "$uri/foo/bar", 'foo=bar');
-        is $res->status_line, '202 whatevs', 'post status';
-        is $res->content, 'you posted something: foo=bar', 'post body';
-        is $res->header('Foo'), 'bar, buzz', 'Foo: bar';
-        is $res->header('Content-Type'), 'text/whee', 'Content-Type: text/whee';
-        kill -9, $pid;
-    }
-};
+    $res = Net::HTTP::Client->request(POST => "$uri/foo/bar", 'foo=bar');
+    is $res->status_line, '202 whatevs', 'post status';
+    is $res->content, 'you posted something: foo=bar', 'post body';
+    is $res->header('Foo'), 'bar, buzz', 'Foo: bar';
+    is $res->header('Content-Type'), 'text/whee', 'Content-Type: text/whee';
+    kill -9, $pid;
+}

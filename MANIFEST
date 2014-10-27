@@ -10,7 +10,11 @@ dist.ini
 example.pl
 example2.pl
 lib/Limper.pm
+lib/Limper/Differences.pod
+lib/Limper/Engine.pm
 lib/Limper/Extending.pod
+lib/Limper/Passphrase.pm
+lib/Limper/Plugin.pm
 t/001_base.t
 t/002_limper.t
 t/release-kwalitee.t

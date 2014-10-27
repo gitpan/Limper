@@ -1,5 +1,5 @@
 package Limper;
-$Limper::VERSION = '0.011';
+$Limper::VERSION = '0.012';
 use 5.10.0;
 use strict;
 use warnings;
@@ -7,23 +7,26 @@ use warnings;
 use IO::Socket;
 
 use Exporter qw/import/;
-our @EXPORT = qw/get post put del trace status headers request response options hook limp/;
-our @EXPORT_OK = qw/note warning rfc1123date/;
+our @EXPORT = qw/get post put del trace options patch any status headers request response config hook limp/;
+our @EXPORT_OK = qw/info warning rfc1123date/;
 
 # data stored here
 my $request = {};
 my $response = {};
-my $options = {};
+my $config = {};
 my $hook = {};
 my $conn;
 
 # route subs
 my $route = {};
-sub get    { push @{$route->{GET}},    @_ }
-sub post   { push @{$route->{POST}},   @_ }
-sub put    { push @{$route->{PUT}},    @_ }
-sub del    { push @{$route->{DELETE}}, @_ }
-sub trace  { push @{$route->{TRACE}},  @_ }
+sub get     { push @{$route->{GET}},     @_; @_ }
+sub post    { push @{$route->{POST}},    @_; @_ }
+sub put     { push @{$route->{PUT}},     @_; @_ }
+sub del     { push @{$route->{DELETE}},  @_; @_ }
+sub trace   { push @{$route->{TRACE}},   @_; @_ }
+sub options { push @{$route->{OPTIONS}}, @_; @_ }
+sub patch   { push @{$route->{PATCH}},   @_; @_ }
+sub any     { push @{$route->{$_}},      @_ for keys %$route }
 
 # for send_response()
 my $reasons = {
@@ -89,13 +92,13 @@ sub date {
 }
 
 # Trivially log to STDOUT or STDERR
-sub note    { say  date, ' ', @_ }
+sub info    { say  date, ' ', @_ }
 sub warning { warn date, ' ', @_ }
 
 sub timeout {
     eval {
         local $SIG{ALRM} = sub { die "alarm\n" };
-        alarm($options->{timeout} // 5);
+        alarm($config->{timeout} // 5);
         $_ = $_[0]->();
         alarm 0;
     };
@@ -110,8 +113,8 @@ sub bad_request {
 
 # Returns a processed request as a hash, or sends a 400 and closes if invalid.
 sub get_request {
-    $request = { headers => [], hheaders => {}, remote_host => $conn->peerhost // 'localhost' };
-    $response = { headers => [] };
+    $request = { headers => {}, remote_host => $conn->peerhost // 'localhost' };
+    $response = { headers => {} };
     my ($request_line, $headers_done, $chunked);
     while (1) {
         defined(my $line = timeout(sub { $conn->getline })) or last;
@@ -130,30 +133,28 @@ sub get_request {
                 }
                 $value =~ s/\r\n//;
                 $value = $1 if lc $name eq 'host' and $request->{version} eq 'HTTP/1.1' and $request->{uri} =~ s{^https?://(.+?)/}{/};
-                push @{$request->{headers}}, lc $name, $value;
-                if (exists $request->{hheaders}{lc $name}) {
-                    if (ref $request->{hheaders}{lc $name}) {
-                        push @{$request->{hheaders}{lc $name}}, $value;
+                if (exists $request->{headers}{lc $name}) {
+                    if (ref $request->{headers}{lc $name}) {
+                        push @{$request->{headers}{lc $name}}, $value;
                     } else {
-                        $request->{hheaders}{lc $name} = [$request->{hheaders}{lc $name}, $value];
+                        $request->{headers}{lc $name} = [$request->{headers}{lc $name}, $value];
                     }
                 } else {
-                    $request->{hheaders}{lc $name} = $value;
+                    $request->{headers}{lc $name} = $value;
                 }
             }
         }
         if (defined $headers_done) {
             return if defined $chunked;
-            note "[$request->{remote_host}] $request->{method} $request->{uri} $request->{version} [", {@{$request->{headers}}}->{'user-agent'} // "", "]";
-            return bad_request 'Host header missing' if $request->{version} eq 'HTTP/1.1' and (!exists $request->{hheaders}{host} or ref $request->{hheaders}{host});
-            for (my $i = 0; $i < @{$request->{headers}}; $i += 2) {
-                if ($request->{headers}[$i] eq 'expect' and lc $request->{headers}[$i+1] eq '100-continue' and $request->{version} eq 'HTTP/1.1') {
+            info "[$request->{remote_host}] $request->{method} $request->{uri} $request->{version} [", $request->{headers}{'user-agent'} // '', ']';
+            return bad_request 'Host header missing' if $request->{version} eq 'HTTP/1.1' and (!exists $request->{headers}{host} or ref $request->{headers}{host});
+            for (keys %{$request->{headers}}) {
+                if ($_ eq 'expect' and lc $request->{headers}{$_} eq '100-continue' and $request->{version} eq 'HTTP/1.1') {
                     $conn->print("HTTP/1.1 100 Continue\r\n\r\n");	# this does not check if route is valid. just here to comply.
-                }
-                if ($request->{headers}[$i] eq 'content-length') {
-                    timeout(sub { $conn->read($request->{body}, $request->{headers}[$i+1]) });
+                } elsif ($_ eq 'content-length') {
+                    timeout(sub { $conn->read($request->{body}, $request->{headers}{$_}) });
                     last;
-                } elsif ($request->{headers}[$i] eq 'transfer-encoding' and lc $request->{headers}[$i+1] eq 'chunked') {
+                } elsif ($_ eq 'transfer-encoding' and lc $request->{headers}{$_} eq 'chunked') {
                     my $length = my $offset = $chunked = 0;
                     do {
                         $_ = timeout(sub { $conn->getline });
@@ -192,25 +193,25 @@ sub handle_request {
 sub send_response {
     my ($head, $connection) = @_;
     $connection //= (($request->{version} // '') eq 'HTTP/1.1')
-            ? lc($request->{hheaders}{connection} // '')
-            : lc($request->{hheaders}{connection} // 'close') eq 'keep-alive' ? 'keep-alive' : 'close';
+            ? lc($request->{headers}{connection} // '')
+            : lc($request->{headers}{connection} // 'close') eq 'keep-alive' ? 'keep-alive' : 'close';
     $response->{status} //= 200;
-    push @{$response->{headers}}, 'Date', rfc1123date();
+    $response->{headers}{Date} = rfc1123date();
     if (defined $response->{body} and !ref $response->{body}) {
-        my @headers = keys %{{@{$response->{headers}}}};
-        push @{$response->{headers}}, ('Content-Length', length $response->{body}) unless grep { $_ eq 'Content-Length' } @headers;
-        push @{$response->{headers}}, ('Content-Type', 'text/plain') unless grep { $_ eq 'Content-Type' } @headers;
+        $response->{headers}{'Content-Length'} //= length $response->{body};
+        $response->{headers}{'Content-Type'} //= 'text/plain';
     }
     delete $response->{body} if $head // 0;
-    push @{$response->{headers}}, 'Connection', $connection if $connection eq 'close' or ($connection eq 'keep-alive' and $request->{version} ne 'HTTP/1.1');
-    unshift @{$response->{headers}}, 'Server', 'limper/' . ($Limper::VERSION // 'pre-release');
+    $response->{headers}{Connection} = $connection if $connection eq 'close' or ($connection eq 'keep-alive' and $request->{version} ne 'HTTP/1.1');
+    $response->{headers}{Server} = 'limper/' . ($Limper::VERSION // 'pre-release');
     $_->($request, $response) for @{$hook->{after}};
     return $hook->{response_handler}[0]->() if exists $hook->{response_handler};
     {
         local $\ = "\r\n";
         $conn->print(join ' ', $request->{version} // 'HTTP/1.1', $response->{status}, $response->{reason} // $reasons->{$response->{status}});
         return unless $conn->connected;
-        $conn->print( join(': ', splice(@{$response->{headers}}, 0, 2)) ) while @{$response->{headers}};
+        my @headers = headers();
+        $conn->print( join(': ', splice(@headers, 0, 2)) ) while @headers;
         $conn->print();
     }
     $conn->print($response->{body} // '') if defined $response->{body};
@@ -227,10 +228,18 @@ sub status {
 }
 
 sub headers {
-    if (defined wantarray) {
-        wantarray ? @{$response->{headers}} : $response->{headers};
+    if (!defined wantarray) {
+        $response->{headers}{+pop} = pop while @_;
     } else {
-        @{$response->{headers}} = @_;
+        my @headers;
+        for my $key (keys %{ $response->{headers} }) {
+            if (ref $response->{headers}{$key}) {
+                push @headers, $key, $_ for @{$response->{headers}{$key}};
+            } else {
+                push @headers, $key, $response->{headers}{$key};
+            }
+        }
+        @headers;
     }
 }
 
@@ -238,19 +247,19 @@ sub request { $request }
 
 sub response { $response }
 
-sub options { $options }
+sub config { $config }
 
 sub hook { push @{$hook->{$_[0]}}, $_[1] }
 
 sub limp {
-    $options = shift @_ if ref $_[0] eq 'HASH';
+    $config = shift @_ if ref $_[0] eq 'HASH';
     return $hook->{request_handler}[0] if exists $hook->{request_handler};
     my $sock = IO::Socket::INET->new(Listen => SOMAXCONN, ReuseAddr => 1, LocalAddr => 'localhost', LocalPort => 8080, Proto => 'tcp', @_)
             or die "cannot bind to port: $!";
 
-    note 'limper started';
+    info 'limper started';
 
-    for (1 .. $options->{workers} // 5) {
+    for (1 .. $config->{workers} // 5) {
         defined(my $pid = fork) or die "fork failed: $!";
         while (!$pid) {
             if ($conn = $sock->accept()) {
@@ -260,7 +269,7 @@ sub limp {
                         handle_request if $conn->connected;
                     };
                     if ($@) {
-                        $response = { status => 500, body => $options->{debug} // 0 ? $@ : 'Internal Server Error' };
+                        $response = { status => 500, body => $config->{debug} // 0 ? $@ : 'Internal Server Error' };
                         send_response 0, 'close';
                         warning $@;
                     }
@@ -272,8 +281,8 @@ sub limp {
 
     my $shutdown = $sock->shutdown(2);
     my $closed = $sock->close();
-    note 'shutdown ', $shutdown ? 'successful' : 'unsuccessful';
-    note 'closed ', $closed ? 'successful' : 'unsuccessful';
+    info 'shutdown ', $shutdown ? 'successful' : 'unsuccessful';
+    info 'closed ', $closed ? 'successful' : 'unsuccessful';
 }
 
 1;
@@ -288,7 +297,7 @@ Limper - extremely lightweight but not very powerful web application framework
 
 =head1 VERSION
 
-version 0.011
+version 0.012
 
 =head1 SYNOPSIS
 
@@ -332,12 +341,12 @@ Do not taunt B<Limper>.
 
 The following are all exported by default:
 
-  get post put del trace
-  status headers request response options hook limp
+  get post put del trace options patch any
+  status headers request response config hook limp
 
 Also exportable:
 
-  note warning rfc1123date
+  info warning rfc1123date
 
 =head1 FUNCTIONS
 
@@ -351,11 +360,25 @@ Also exportable:
 
 =head2 trace
 
+=head2 options
+
+=head2 patch
+
 Defines a route handler for METHOD to the given path:
 
   get '/' => sub { 'Hello world!' };
 
+These can be chained together like so:
+
+  get post del '/' => sub { 'Hello world!' };
+
 Note that a route to match B<HEAD> requests is automatically created as well for B<get>.
+
+=head2 any
+
+Defines a route handler for B<all> METHODs to the given path:
+
+  any '/' => sub { 'Hello world!' };
 
 =head2 status
 
@@ -371,27 +394,31 @@ Get or set the response status, and optionally reason.
 Get or set the response headers.
 
   headers Foo => 'bar', Fizz => 'buzz';
+  headers Foo => ['this', 'that'];                # change Foo to two values
+  headers Oops => 'inserted', Oops => 'ignored';  # don't do this
   my @headers = headers;
-  my $headers = headers;
 
-Note: All previously defined headers will be discarded if you set new headers.
+Note: Changed in 0.012. The headers are now stored in a hashref, where the
+value is either a string or array of strings.  Calling B<headers> in list
+mode returns a flattened list.  If you want the hashref of headers, use B<
+response->{headers} >>.  Setting header pairs no longer overwrites all
+previously defined headers.
 
 =head2 request
 
 Returns a B<HASH> of the request. Request keys are: B<method>, B<uri>, and
-B<version>.  It may also contain B<headers> which is an B<ARRAY>,
-B<hheaders> which is a B<HASH> form of the headers, and B<body>.
+B<version>.  It may also contain B<headers> which is a B<HASH> and B<body>.
 
 There is no decoding of the body content nor URL paramters.
 
 =head2 response
 
-Returns response B<HASH>. Keys are B<status>, B<reason>, B<headers> (an
-B<ARRAY> of key/value pairs), and B<body>.
+Returns response B<HASH>. Keys are B<status>, B<reason>, B<headers> (a
+B<HASH> of key/value pairs), and B<body>.
 
-=head2 options
+=head2 config
 
-Returns options B<HASH>. See B<limp> below for known options.
+Returns config B<HASH>. See B<limp> below for known config settings.
 
 =head2 hook
 
@@ -410,7 +437,7 @@ Runs after all other processing, just before response is sent.
 
 =head3 request_handler
 
-Runs when B<limp> is called, after only setting passed options, and returns
+Runs when B<limp> is called, after only setting passed config settings, and returns
 the result instead of starting up the built-in web server.  A simplified
 example for PSGI (including the B<response_handler> below) is:
 
@@ -425,7 +452,7 @@ Runs right after the B<after> hook, and returns the result instead of using
 the built-in web server for sending the response. For PSGI, this is:
 
   hook response_handler => sub {
-    [ response->{status}, response->{headers}, ref response->{body} ? response->{body} : [response->{body}] ];
+    [ response->{status}, [headers], ref response->{body} ? response->{body} : [response->{body}] ];
   };
 
 =head2 limp
@@ -435,7 +462,7 @@ takes.  The default options are:
 
   Listen => SOMAXCONN, ReuseAddr => 1, LocalAddr => 'localhost', LocalPort => 8080, Proto => 'tcp'
 
-In addition, the first argument can be a B<HASH> to pass other settings:
+In addition, the first argument can be a B<HASH> to pass config settings:
 
   limp({debug => 1, timeout => 60, workers => 10}, LocalAddr => '0.0.0.0', LocalPort => 3001);
 
@@ -447,7 +474,7 @@ are defined.  At this point, Limper takes over control.
 
 =head1 ADDITIONAL FUNCTIONS
 
-=head2 note
+=head2 info
 
 =head2 warning
 
@@ -458,9 +485,60 @@ format "YYYY-MM-DD HH:MM:SS".
 
 Returns the current time or passed timestamp as an HTTP 1.1 date (RFC 1123).
 
+=head1 EVEN MORE
+
+For additional (discouraged) functions to aid in transitioning to Limper, see L<Limper::Sugar>.
+
+For sending files and easily sending JSON, see L<Limper::SendFile> and L<Limper::SendJSON>.
+
+For differences between Limper and Dancer, see L<Limper::Differences>.
+
+For extending Limper, see L<Limper::Extending>.
+
+=head1 NOTICE
+
+This framework is still under development. Things B<may> change without
+warning.  Version 0.012 has such changes, but I hope I have what is in this
+version stable.
+
+=head1 BREAKING CHANGES IN 0.012
+
+B<options> is now B<config>, and there is a new function B<options> for the
+HTTP method.
+
+B<note> has been changed to B<info>.
+
+B<headers> now will update just the fields given, and not replace all the
+headers.  The headers are now stored as a B<HASH> instead of an B<ARRAY>.
+Hence, C<< response->{headers} >> cannot be directly passed to PSGI.  Instead
+C<< [headers] >> meets this need.
+
+C<< request->{header} >> is now what C<< request->{hheader} >> was - no more
+ARRAY form.
+
+=head1 CONTRIBUTING
+
+=head2 Patches and Bug Fixes
+
+Preferably, clone the repo (uses L<Dist::Zilla>) and create one or more
+patch files with:
+
+  git format patch <latest commit>
+
+Email me the patch, or otherwise let me know how to find it.
+
+Or if it's a simple patch and you don't want to mess with L<Dist::Zilla>,
+patch the latest release and send me a patch file.
+
+=head2 Module Namespaces
+
+See L<Limper::Extending/NAMESPACES>.
+
 =head1 COPYRIGHT AND LICENSE
 
 Copyright (C) 2014 by Ashley Willis E<lt>ashley+perl@gitable.orgE<gt>
+
+B<rabcyr> on irc and L<twitter|https://twitter.com/rabcyr>.
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.12.4 or,
@@ -468,7 +546,9 @@ at your option, any later version of Perl 5 you may have available.
 
 =head1 SEE ALSO
 
-L<IO::Socket::INET>
+L<Limper::Differences>
+
+L<Limper::Extending>
 
 L<Limper::Engine::PSGI>
 
@@ -476,10 +556,10 @@ L<Limper::SendFile>
 
 L<Limper::SendJSON>
 
-L<Dancer>
-
-L<Dancer2>
-
-L<Web::Simple>
+L<Limper::Sugar>
 
 L<App::FatPacker>
+
+L<IO::Socket::INET>
+
+L<Web::Simple>

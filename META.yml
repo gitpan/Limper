@@ -15,7 +15,16 @@ name: Limper
 provides:
   Limper:
     file: lib/Limper.pm
-    version: 0.011
+    version: 0.012
+  Limper::Engine:
+    file: lib/Limper/Engine.pm
+    version: 0.012
+  Limper::Passphrase:
+    file: lib/Limper/Passphrase.pm
+    version: 0.012
+  Limper::Plugin:
+    file: lib/Limper/Plugin.pm
+    version: 0.012
 requires:
   Exporter: 0
   IO::Socket: 0
@@ -24,4 +33,4 @@ requires:
   warnings: 0
 resources:
   repository: https://gitable.org/ashley/limper.git
-version: 0.011
+version: 0.012
